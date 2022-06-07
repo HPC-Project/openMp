@@ -138,10 +138,11 @@ Le calcul des forces d'interaction entre les particules permet de déterminer l'
 
 
 //Pour chaque time step: 
+ printf("  Number of processors available = %d\n", omp_get_num_procs());
+    printf("  Number of threads =              %d\n", omp_get_max_threads()); 
+//omp_set_num_threads(4) ;
 
-omp_set_num_threads(4) ;
-
-ctime = /* omp_get_wtime ( ); */ cpu_time ( ) ;
+ctime =  omp_get_wtime ( );  /* cpu_time ( )  */;
 
   for ( step = 0; step <= step_num; step++ )
   {
@@ -175,7 +176,7 @@ ctime = /* omp_get_wtime ( ); */ cpu_time ( ) ;
   }
 
 //Le temps d'éxecusion total:
-  ctime =  /* omp_get_wtime ( ) */ cpu_time ( ) - ctime;
+  ctime =   omp_get_wtime ( )  /* cpu_time ( ) */ - ctime;
   printf ( "\n" );
   printf ( "  Le temps d'execution: %f seconds.\n", ctime );
 /*
@@ -247,6 +248,7 @@ void initialize ( int num_particles, int dimension, double position[], double ve
     double velocity[dimension*num_particles]: les velocities (les vitesses)
     double acceleration[dimension*num_particles]: les accelerations.
 */
+
 void update ( int num_particles, int dimension, double position[], double velocity[], double forces[],
   double acceleration[], double mass, double size_time_step )
 
@@ -258,9 +260,9 @@ void update ( int num_particles, int dimension, double position[], double veloci
   rmass = 1.0 / mass;
 
 
-# pragma omp parallel \
-  shared ( acceleration, size_time_step, forces, dimension, num_particles, position, rmass, velocity ) \
-  private ( i, j )
+# pragma omp parallel private ( i, j ) 
+ // shared ( acceleration, size_time_step, forces, dimension, num_particles, position, rmass, velocity ) ;
+  
 
 # pragma omp for collapse(2)
   for ( j = 0; j < num_particles; j++ )
@@ -276,107 +278,67 @@ void update ( int num_particles, int dimension, double position[], double veloci
   return;
 }
 
-//Le role de cette fonction est de calculer les forces et les energies de chaque patricule
-/*  Discussion:
-    The computation of forces and energies is fully parallel.
-    The potential function V(X) is a harmonic well which smoothly
-    saturates to a maximum value at PI/2:
-      v(x) = ( sin ( min ( x, PI/2 ) ) )^2
-    The derivative of the potential is:
-      dv(x) = 2.0 * sin ( min ( x, PI/2 ) ) * cos ( min ( x, PI/2 ) )
-            = sin ( 2.0 * min ( x, PI/2 ) )
-*/
 
-/*
-  Parameters:
-    Input: 
-    
-    int num_particles: le nombre des particules.
-    int dimension: la dimension spatiale.
-    double position[dimension*num_particles]: les positions.
-    double velocity[dimension*num_particles]: les velocities (les vitesses)
-    double mass: la masse.
-    Output:
-    
-    double forces[dimension*num_particles]: les forces.
-    double *potential_energy: l'energie potentielle totale.
-    double *kinetic_energy: l'energie kinetic totale.
-*/
+void compute(int num_particles, int dimension, double position[], double velocity[],
+             double mass, double forces[], double *potential_energy, double *kinetic_energy)
 
-void compute ( int num_particles, int dimension, double position[], double velocity[], double mass,
-  double forces[], double *potential_energy, double *kinetic_energy )
+
 {
-  double d;
-  double d2;
-  int i;
-  int j;
-  int k;
-  double ke;
-  double pe;
-  double PI2 = 3.141592653589793 / 2.0;
-  double rij[3];
+    double d;
+    double d2;
+    int i;
+    int j;
+    int k;
+    double ke;
+    double pe;
+    double PI2 = 3.141592653589793 / 2.0;
+    double rij[3];
 
-  pe = 0.0;
-  ke = 0.0;
+    pe = 0.0;
+    ke = 0.0;
 
-# pragma omp parallel \
-    shared (forces, dimension , num_particles , position , velocity ) \
-    private (i , j , k , rij, d , d2 )
-    
-# pragma omp for reduction(+:pe)
-  for ( k = 0; k < num_particles; k++ )
-  {
-/*
-  Compute the potential energy and forces.
-*/
-    for ( i = 0; i < dimension; i++ )
-    {
-      forces[i+k*dimension] = 0.0;
+
+#pragma omp parallel for private(i, j) collapse(2)
+    for (i = 0; i < num_particles; i++) {
+        for (j = 0; j < dimension; j++) {
+            forces[j + i * dimension] = 0.0;
+        }
     }
 
-    for ( j = 0; j < num_particles; j++ )
-    {
-      if ( k != j )
-      {
-        d = dist ( dimension, position+k*dimension, position+j*dimension, rij );
-/*
-  Attribute half of the potential energy to particle J.
-*/
-        if ( d < PI2 )
-        {
-          d2 = d;
-        }
-        else
-        {
-          d2 = PI2;
-        }
+#pragma omp parallel for private(i, j, k, d, d2, rij) reduction(+:pe) collapse(2)
+    for (k = 0; k < num_particles; k++) {
+        for (j = 0; j < num_particles; j++) {
+            if (k != j) {
+                d = dist(dimension, position + k * dimension, position + j * dimension, rij);
 
-        pe = pe + 0.5 * pow ( sin ( d2 ), 2 );
+                if (d < PI2) {
+                    d2 = d;
+                } else {
+                    d2 = PI2;
+                }
 
-        for ( i = 0; i < dimension; i++ )
-        {
-          forces[i+k*dimension] = forces[i+k*dimension] - rij[i] * sin ( 2.0 * d2 ) / d;
+                pe = pe + 0.5 * pow(sin(d2), 2);
+
+                for (i = 0; i < dimension; i++) {
+                    forces[i + k * dimension] = forces[i + k * dimension] - rij[i] * sin(2.0 * d2) / d;
+                }
+            }
         }
-      }
     }
-  }
-/*
-  Compute the kinetic energy.
-*/
- # pragma omp parallel for reduction(+:ke) collapse(2)
-  for ( k = 0; k < num_particles; k++ ){
-    for ( i = 0; i < dimension; i++ )
-    {
-      ke = ke + velocity[i+k*dimension] * velocity[i+k*dimension];
+
+#pragma omp parallel for private(i, k, d) reduction(+:ke) collapse(2)
+    for (k = 0; k < num_particles; k++) {
+        for (i = 0; i < dimension; i++) {
+            ke = ke + velocity[i + k * dimension] * velocity[i + k * dimension];
+        }
     }
-  }
 
-  ke = ke * 0.5 * mass;
-//#pragma omp single /*because its a critical section*/
-  *potential_energy = pe;
-  *kinetic_energy = ke;
+    ke = ke * 0.5 * mass;
 
-  return;
+    *potential_energy = pe;
+    *kinetic_energy = ke;
+
+    return;
 }
 
 //Le role de cette fonction est de calculer le temps d'éxecusion d'un programme
@@ -408,9 +370,9 @@ double dist ( int dimension, double r1[], double r2[], double diplacement_vector
   int i;
 
   norme_dipalcement = 0.0;
-# pragma omp parallel \
-  shared ( dimension,diplacement_vector,r1,r2,norme_dipalcement) \
-  private ( i)
+# pragma omp parallel private ( i)
+  //shared ( dimension,diplacement_vector,r1,r2,norme_dipalcement) 
+  
 
 # pragma omp for
   for ( i = 0; i < dimension; i++ )
