@@ -2,6 +2,8 @@
 # include <stdio.h>
 # include <stdlib.h>
 # include <time.h>
+# include <omp.h>
+
 
 //les fonctions de notre programmes
 
@@ -321,7 +323,7 @@ void compute ( int num_particles, int dimension, double position[], double veloc
     shared (forces, dimension , num_particles , position , velocity ) \
     private (i , j , k , rij, d , d2 )
     
-# pragma omp for 
+# pragma omp for reduction(+:pe)
   for ( k = 0; k < num_particles; k++ )
   {
 /*
@@ -357,9 +359,12 @@ void compute ( int num_particles, int dimension, double position[], double veloc
         }
       }
     }
+  }
 /*
   Compute the kinetic energy.
 */
+ # pragma omp parallel for reduction(+:ke) collapse(2)
+  for ( k = 0; k < num_particles; k++ ){
     for ( i = 0; i < dimension; i++ )
     {
       ke = ke + velocity[i+k*dimension] * velocity[i+k*dimension];
@@ -367,7 +372,7 @@ void compute ( int num_particles, int dimension, double position[], double veloc
   }
 
   ke = ke * 0.5 * mass;
-#pragma omp single /*because its a critical section*/
+//#pragma omp single /*because its a critical section*/
   *potential_energy = pe;
   *kinetic_energy = ke;
 
