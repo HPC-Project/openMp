@@ -139,7 +139,7 @@ Le calcul des forces d'interaction entre les particules permet de déterminer l'
 
 omp_set_num_threads(4) ;
 
-ctime = omp_get_wtime ( );
+ctime = /* omp_get_wtime ( ); */ cpu_time ( ) ;
 
   for ( step = 0; step <= step_num; step++ )
   {
@@ -173,7 +173,7 @@ ctime = omp_get_wtime ( );
   }
 
 //Le temps d'éxecusion total:
-  ctime =  omp_get_wtime ( ) - ctime;
+  ctime =  /* omp_get_wtime ( ) */ cpu_time ( ) - ctime;
   printf ( "\n" );
   printf ( "  Le temps d'execution: %f seconds.\n", ctime );
 /*
@@ -321,7 +321,7 @@ void compute ( int num_particles, int dimension, double position[], double veloc
     shared (forces, dimension , num_particles , position , velocity ) \
     private (i , j , k , rij, d , d2 )
     
-# pragma omp for  collapse(2)
+# pragma omp for 
   for ( k = 0; k < num_particles; k++ )
   {
 /*
